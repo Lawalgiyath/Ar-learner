@@ -1,8 +1,8 @@
 // Navigation component
+// Clean header with glassmorphism, responsive navigation and status badges
 
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
-import '../../src/styles/design-system.css'
 
 interface NavProps {
   onNavigate: (page: string) => void
@@ -11,7 +11,6 @@ interface NavProps {
 export default function Nav({ onNavigate }: NavProps) {
   const { user, activePage, isAuthenticated } = useStore()
   const [scrolled, setScrolled] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10)
@@ -30,10 +29,9 @@ export default function Nav({ onNavigate }: NavProps) {
     <nav
       className="nav"
       style={{
-        background: scrolled
-          ? 'rgba(8, 8, 16, 0.95)'
-          : 'rgba(8, 8, 16, 0.7)',
-        borderBottomColor: scrolled ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.04)',
+        background: scrolled ? 'rgba(6, 8, 14, 0.95)' : 'rgba(6, 8, 14, 0.82)',
+        borderBottom: `1px solid ${scrolled ? 'var(--border-default)' : 'var(--border-subtle)'}`,
+        transition: 'background var(--duration-base), border-color var(--duration-base)',
       }}
     >
       {/* Brand */}
@@ -52,7 +50,7 @@ export default function Nav({ onNavigate }: NavProps) {
             <path
               d="M9 12l2 2 4-4"
               stroke="rgba(8,8,16,0.8)"
-              strokeWidth="1.5"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -63,14 +61,15 @@ export default function Nav({ onNavigate }: NavProps) {
             fontFamily: 'var(--font-sans)',
             fontWeight: 800,
             letterSpacing: 'var(--tracking-tight)',
+            fontSize: '18px',
           }}
         >
-          AR<span style={{ color: 'var(--accent-vivid)' }}>Learner</span>
+          AR<span style={{ color: 'var(--accent-bright)' }}>Learner</span>
         </span>
       </button>
 
       {/* Desktop links */}
-      <ul className="nav-links" style={{ display: 'flex' }}>
+      <ul className="nav-links">
         {links.map((link) => (
           <li key={link.id}>
             <button
@@ -92,24 +91,25 @@ export default function Nav({ onNavigate }: NavProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 'var(--space-2)',
+              gap: '6px',
               padding: '4px 10px',
               background: 'var(--accent-soft)',
               border: '1px solid var(--accent-border)',
               borderRadius: 'var(--radius-full)',
+              lineHeight: 1,
             }}
           >
-            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--accent-vivid)', letterSpacing: '0.06em' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--accent-bright)', letterSpacing: '0.04em' }}>
               LVL {user.level}
             </span>
             <span
               style={{
-                width: '1px',
-                height: '12px',
+                width: 1,
+                height: 10,
                 background: 'var(--accent-border)',
               }}
             />
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-vivid)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-bright)' }}>
               {user.xp.toLocaleString()} XP
             </span>
           </div>
@@ -121,15 +121,18 @@ export default function Nav({ onNavigate }: NavProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
-              padding: '4px 10px',
+              gap: '5px',
+              padding: '4px 9px',
               background: 'rgba(245, 158, 11, 0.1)',
-              border: '1px solid rgba(245,158,11,0.3)',
+              border: '1px solid rgba(245, 158, 11, 0.28)',
               borderRadius: 'var(--radius-full)',
+              lineHeight: 1,
             }}
           >
-            <span style={{ fontSize: '13px' }}>*</span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fbbf24' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="#fbbf24">
+              <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+            </svg>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#fbbf24' }}>
               {user.streakDays}d
             </span>
           </div>
@@ -138,28 +141,30 @@ export default function Nav({ onNavigate }: NavProps) {
         {/* Avatar */}
         {isAuthenticated && user ? (
           <button
-            onClick={() => onNavigate('profile')}
+            onClick={() => onNavigate('dashboard')}
+            title={`${user.firstName} ${user.lastName}`}
             style={{
-              width: 34,
-              height: 34,
+              width: 32,
+              height: 32,
               borderRadius: 'var(--radius-md)',
-              background: 'linear-gradient(135deg, var(--accent-primary), var(--cyan-primary))',
-              border: '2px solid var(--accent-border)',
+              background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-vivid))',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontWeight: 700,
-              fontSize: 'var(--text-sm)',
+              fontSize: '12px',
               color: 'white',
               flexShrink: 0,
+              boxShadow: 'var(--shadow-sm)',
             }}
           >
             {user.firstName[0]}{user.lastName[0]}
           </button>
         ) : (
           <button
-            className="btn btn-primary btn-md"
+            className="btn btn-primary btn-sm"
             onClick={() => onNavigate('login')}
           >
             Sign In
