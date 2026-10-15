@@ -8,6 +8,32 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import type { SimulationStep } from '../store'
+import {
+  buildCompoundMicroscopeRig,
+  buildVolumetricSubcellularRig,
+  buildErythrocyteRig,
+  SPECIMEN_CATALOG,
+  ORGANELLE_CATALOG,
+  CELL_MODELS_CATALOG,
+  type MicroscopeState,
+  type SpecimenId,
+  type ObjectiveMagnification,
+  type MicroscopeApparatusRig,
+  type SubcellularRig,
+  type CellTypeId,
+  type CellModelDefinition,
+} from './MicroscopeEngine'
+
+export {
+  SPECIMEN_CATALOG,
+  ORGANELLE_CATALOG,
+  CELL_MODELS_CATALOG,
+  type MicroscopeState,
+  type SpecimenId,
+  type ObjectiveMagnification,
+  type CellTypeId,
+  type CellModelDefinition,
+}
 
 // ============================================================
 // PROCEDURAL AUDIO ENGINE (Web Audio API - Zero External Assets)
@@ -258,6 +284,78 @@ export class SimulationAudio {
     gain.connect(ctx.destination)
     osc.start()
     osc.stop(ctx.currentTime + 0.16)
+  }
+
+  public playTurretClick(): void {
+    if (!this.enabled) return
+    const ctx = this.init()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(640, now)
+    osc.frequency.exponentialRampToValueAtTime(180, now + 0.05)
+    gain.gain.setValueAtTime(0.12, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.05)
+  }
+
+  public playFocusTurn(): void {
+    if (!this.enabled) return
+    const ctx = this.init()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(420, now)
+    osc.frequency.linearRampToValueAtTime(320, now + 0.04)
+    gain.gain.setValueAtTime(0.05, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.04)
+  }
+
+  public playSlideInsert(): void {
+    if (!this.enabled) return
+    const ctx = this.init()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(880, now)
+    osc.frequency.exponentialRampToValueAtTime(440, now + 0.08)
+    gain.gain.setValueAtTime(0.09, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.08)
+  }
+
+  public playShutterSnapshot(): void {
+    if (!this.enabled) return
+    const ctx = this.init()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'square'
+    osc.frequency.setValueAtTime(900, now)
+    osc.frequency.setValueAtTime(300, now + 0.03)
+    gain.gain.setValueAtTime(0.1, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.09)
   }
 }
 
@@ -1533,6 +1631,7 @@ export interface SimulationRendererOptions {
   onLoad?: () => void
   onProgress?: (pct: number, item: string) => void
   onTitrationUpdate?: (state: TitrationState) => void
+  onMicroscopeUpdate?: (state: MicroscopeState) => void
 }
 
 export class SimulationRenderer {
@@ -1583,6 +1682,30 @@ export class SimulationRenderer {
     pipetteVolume: 0,
     pipetteState: 'empty',
   }
+  // Microscopic Cell Analysis apparatus & optical state
+  private microscopeState: MicroscopeState = {
+    activeSpecimen: 'blood_smear',
+    slideMounted: true,
+    objective: 10,
+    coarseFocus: 52,
+    fineFocus: 50,
+    stageX: 0,
+    stageY: 0,
+    condenserHeight: 85,
+    irisAperture: 80,
+    lightIntensity: 90,
+    hasImmersionOil: false,
+    viewMode: 'bench',
+    activeCellType: 'animal',
+    isSickleCellMode: false,
+    isPlasmolysisMode: false,
+    activeOrganelle: null,
+    caliperDistanceUm: null,
+  }
+  private microscopeRig: MicroscopeApparatusRig | null = null
+  private subcellularRig: SubcellularRig | null = null
+  private loadedCellRoot: THREE.Group | null = null
+
   private flaskLiquidMesh: THREE.Mesh | null = null
   private buretteLiquidMesh: THREE.Mesh | null = null
   private stopcockHandleGroup: THREE.Group | null = null
@@ -1595,6 +1718,11 @@ export class SimulationRenderer {
 
   // Interactive portable apparatus & continuous controls
   private isDraggingStopcock = false
+  private isDraggingCoarseKnob = false
+  private isDraggingFineKnob = false
+  private isDraggingStageXY = false
+  private isDraggingIrisLever = false
+  private isDraggingRheostat = false
   private activeTool: 'none' | 'wash_bottle' | 'indicator' | 'pipette' | 'reagent_beaker' | 'litmus_strip' | 'flask' = 'none'
   private toolRestTransforms: Map<string, { position: THREE.Vector3; rotation: THREE.Euler }> = new Map()
   private washBottleBody: THREE.Mesh | null = null
@@ -1765,6 +1893,12 @@ export class SimulationRenderer {
   private buildScene(): void {
     if (this.options.moduleId === 'mod_science_001') {
       this.buildPhotorealisticTitrationScene()
+      this.options.onLoad?.()
+      return
+    }
+
+    if (this.options.moduleId === 'mod_science_002') {
+      this.buildPhotorealisticMicroscopeScene()
       this.options.onLoad?.()
       return
     }
@@ -2854,7 +2988,6 @@ export class SimulationRenderer {
     this.previousMousePosition = { x: e.clientX, y: e.clientY }
     this.mouseDownPos = { x: e.clientX, y: e.clientY }
 
-    // Check if clicking directly on the stopcock handle to turn it
     this.raycaster.setFromCamera(this.mouse, this.camera)
     const interactables = Array.from(this.objects.values()).filter((m) => m.userData.interactive)
     const hits = this.raycaster.intersectObjects(interactables, true)
@@ -2863,10 +2996,70 @@ export class SimulationRenderer {
       while (obj && !obj.userData.interactive) {
         obj = obj.parent
       }
-      if (obj && obj.userData.id === 'stopcock') {
-        this.isDraggingStopcock = true
-        this.options.canvas.style.cursor = 'ew-resize'
-        return
+      if (obj && obj.userData) {
+        const id = obj.userData.id as string
+        const iType = obj.userData.interactionType as string | undefined
+
+        if (id === 'stopcock') {
+          this.isDraggingStopcock = true
+          this.options.canvas.style.cursor = 'ew-resize'
+          return
+        }
+        if (iType === 'microscope_coarse_knob') {
+          this.isDraggingCoarseKnob = true
+          this.options.canvas.style.cursor = 'ns-resize'
+          return
+        }
+        if (iType === 'microscope_fine_knob') {
+          this.isDraggingFineKnob = true
+          this.options.canvas.style.cursor = 'ns-resize'
+          return
+        }
+        if (iType === 'microscope_stage' || iType === 'microscope_xy_knobs') {
+          this.isDraggingStageXY = true
+          this.options.canvas.style.cursor = 'move'
+          return
+        }
+        if (iType === 'microscope_iris_lever') {
+          this.isDraggingIrisLever = true
+          this.options.canvas.style.cursor = 'ew-resize'
+          return
+        }
+        if (iType === 'microscope_rheostat') {
+          this.isDraggingRheostat = true
+          this.options.canvas.style.cursor = 'ew-resize'
+          return
+        }
+        if (iType === 'microscope_turret') {
+          this.cycleObjective()
+          this.options.onObjectClick?.(id, (obj.userData.label as string) || id)
+          return
+        }
+        if (iType === 'microscope_slide') {
+          this.setMicroscopeState({ slideMounted: !this.microscopeState.slideMounted })
+          simulationAudio.playSlideInsert()
+          this.options.onObjectClick?.(id, (obj.userData.label as string) || id)
+          return
+        }
+        if (iType === 'microscope_slide_box') {
+          const specId = obj.userData.specimenId as SpecimenId | undefined
+          if (specId) {
+            this.mountSlide(specId)
+            this.options.onObjectClick?.(id, (obj.userData.label as string) || id)
+          }
+          return
+        }
+        if (iType === 'microscope_oil_bottle') {
+          this.applyImmersionOil()
+          this.options.onObjectClick?.(id, (obj.userData.label as string) || id)
+          return
+        }
+        if (id.startsWith('organelle_') || id.startsWith('cell_pin_')) {
+          const orgKey = (obj.userData.organelleKey as string) || id.replace('organelle_', '').replace('cell_pin_', '')
+          this.inspectOrganelle(orgKey)
+          this.options.onObjectClick?.(id, (obj.userData.label as string) || id)
+          return
+        }
       }
     }
 
@@ -2881,11 +3074,64 @@ export class SimulationRenderer {
     this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
     if (this.isDraggingStopcock) {
-      // Direct physical dragging of stopcock handle (rotates from 0° to 90°)
       const dy = this.previousMousePosition.y - e.clientY
       const dx = e.clientX - this.previousMousePosition.x
       const delta = (Math.abs(dy) > Math.abs(dx) ? dy : dx) * 0.75
       this.setStopcockAngle(this.titrationState.stopcockAngle + delta)
+      this.previousMousePosition = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (this.isDraggingCoarseKnob) {
+      const dy = this.previousMousePosition.y - e.clientY
+      this.adjustCoarseFocus(dy * 0.35)
+      if (this.microscopeRig) {
+        this.microscopeRig.coarseKnobGroup.rotation.x += dy * 0.05
+      }
+      this.previousMousePosition = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (this.isDraggingFineKnob) {
+      const dy = this.previousMousePosition.y - e.clientY
+      this.adjustFineFocus(dy * 0.12)
+      if (this.microscopeRig) {
+        this.microscopeRig.fineKnobGroup.rotation.x += dy * 0.05
+      }
+      this.previousMousePosition = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (this.isDraggingStageXY) {
+      const dx = e.clientX - this.previousMousePosition.x
+      const dy = e.clientY - this.previousMousePosition.y
+      this.translateStage(dx * 0.15, -dy * 0.15)
+      if (this.microscopeRig) {
+        if (this.microscopeRig.xyUpperKnob) this.microscopeRig.xyUpperKnob.rotation.y += dx * 0.08
+        if (this.microscopeRig.xyLowerKnob) this.microscopeRig.xyLowerKnob.rotation.y += dy * 0.08
+      }
+      this.previousMousePosition = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (this.isDraggingIrisLever) {
+      const dx = e.clientX - this.previousMousePosition.x
+      const nextIris = Math.max(10, Math.min(100, this.microscopeState.irisAperture + dx * 0.6))
+      this.setMicroscopeState({ irisAperture: Math.round(nextIris) })
+      if (this.microscopeRig && this.microscopeRig.irisLeverMesh) {
+        this.microscopeRig.irisLeverMesh.rotation.y = (this.microscopeState.irisAperture / 100) * 0.8
+      }
+      this.previousMousePosition = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (this.isDraggingRheostat) {
+      const dx = e.clientX - this.previousMousePosition.x
+      const nextLight = Math.max(0, Math.min(100, this.microscopeState.lightIntensity + dx * 0.6))
+      this.setMicroscopeState({ lightIntensity: Math.round(nextLight) })
+      if (this.microscopeRig && this.microscopeRig.rheostatMesh) {
+        this.microscopeRig.rheostatMesh.rotation.x += dx * 0.05
+      }
       this.previousMousePosition = { x: e.clientX, y: e.clientY }
       return
     }
@@ -2907,33 +3153,94 @@ export class SimulationRenderer {
   private onMouseUp = (): void => {
     this.isDragging = false
     this.isDraggingStopcock = false
+    this.isDraggingCoarseKnob = false
+    this.isDraggingFineKnob = false
+    this.isDraggingStageXY = false
+    this.isDraggingIrisLever = false
+    this.isDraggingRheostat = false
   }
 
   private onTouchStart = (e: TouchEvent): void => {
     if (e.touches.length === 1) {
-      this.isDragging = true
       this.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY }
       this.mouseDownPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+
+      const rect = this.options.canvas.getBoundingClientRect()
+      this.mouse.x = ((e.touches[0].clientX - rect.left) / rect.width) * 2 - 1
+      this.mouse.y = -((e.touches[0].clientY - rect.top) / rect.height) * 2 + 1
+
+      this.raycaster.setFromCamera(this.mouse, this.camera)
+      const interactables = Array.from(this.objects.values()).filter((m) => m.userData.interactive)
+      const hits = this.raycaster.intersectObjects(interactables, true)
+      if (hits.length > 0) {
+        let obj: THREE.Object3D | null = hits[0].object
+        while (obj && !obj.userData.interactive) {
+          obj = obj.parent
+        }
+        if (obj && obj.userData) {
+          const iType = obj.userData.interactionType as string | undefined
+          if (iType === 'microscope_coarse_knob') {
+            this.isDraggingCoarseKnob = true
+            return
+          }
+          if (iType === 'microscope_fine_knob') {
+            this.isDraggingFineKnob = true
+            return
+          }
+          if (iType === 'microscope_stage' || iType === 'microscope_xy_knobs') {
+            this.isDraggingStageXY = true
+            return
+          }
+        }
+      }
+
+      this.isDragging = true
     }
   }
 
   private onTouchMove = (e: TouchEvent): void => {
-    if (e.touches.length === 1 && this.isDragging) {
+    if (e.touches.length === 1) {
       e.preventDefault()
-      const dx = e.touches[0].clientX - this.previousMousePosition.x
-      const dy = e.touches[0].clientY - this.previousMousePosition.y
-      this.targetSpherical.theta -= dx * 0.008
-      this.targetSpherical.phi = Math.max(
-        0.15,
-        Math.min(Math.PI / 2 - 0.05, this.targetSpherical.phi + dy * 0.008)
-      )
-      this.previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      const clientX = e.touches[0].clientX
+      const clientY = e.touches[0].clientY
+      const dx = clientX - this.previousMousePosition.x
+      const dy = this.previousMousePosition.y - clientY
+
+      if (this.isDraggingCoarseKnob) {
+        this.adjustCoarseFocus(dy * 0.35)
+        this.previousMousePosition = { x: clientX, y: clientY }
+        return
+      }
+      if (this.isDraggingFineKnob) {
+        this.adjustFineFocus(dy * 0.12)
+        this.previousMousePosition = { x: clientX, y: clientY }
+        return
+      }
+      if (this.isDraggingStageXY) {
+        this.translateStage(dx * 0.15, dy * 0.15)
+        this.previousMousePosition = { x: clientX, y: clientY }
+        return
+      }
+
+      if (this.isDragging) {
+        this.targetSpherical.theta -= dx * 0.008
+        this.targetSpherical.phi = Math.max(
+          0.15,
+          Math.min(Math.PI / 2 - 0.05, this.targetSpherical.phi - dy * 0.008)
+        )
+        this.previousMousePosition = { x: clientX, y: clientY }
+      }
     }
   }
 
   private onTouchEnd = (): void => {
     this.isDragging = false
     this.isDraggingStopcock = false
+    this.isDraggingCoarseKnob = false
+    this.isDraggingFineKnob = false
+    this.isDraggingStageXY = false
+    this.isDraggingIrisLever = false
+    this.isDraggingRheostat = false
   }
 
   private onClick = (e: MouseEvent): void => {
@@ -3141,7 +3448,16 @@ export class SimulationRenderer {
         const label = (obj.userData.label as string) || id
         const desc = (obj.userData.description as string) || null
         this.hoveredObject = id
-        this.options.canvas.style.cursor = id === 'stopcock' ? 'grab' : 'pointer'
+        const iType = obj.userData.interactionType as string | undefined
+        if (id === 'stopcock' || iType === 'microscope_iris_lever' || iType === 'microscope_rheostat') {
+          this.options.canvas.style.cursor = 'ew-resize'
+        } else if (iType === 'microscope_coarse_knob' || iType === 'microscope_fine_knob') {
+          this.options.canvas.style.cursor = 'ns-resize'
+        } else if (iType === 'microscope_stage' || iType === 'microscope_xy_knobs') {
+          this.options.canvas.style.cursor = 'move'
+        } else {
+          this.options.canvas.style.cursor = 'pointer'
+        }
         if (id !== this.highlightedObject) {
           const rootObj = this.objects.get(id)
           if (rootObj) this.applyEmissive(rootObj, true, false)
@@ -3206,7 +3522,7 @@ export class SimulationRenderer {
     this.targetSpherical.phi = Math.max(0.25, Math.min(1.4, Math.PI / 2 - Math.atan2(y - 0.45, dist)))
   }
 
-  public setViewPreset(preset: 'front' | 'top' | 'side' | 'reset' | 'titration' | 'meniscus' | 'overview'): void {
+  public setViewPreset(preset: 'front' | 'top' | 'side' | 'reset' | 'titration' | 'meniscus' | 'overview' | 'eyepiece' | 'stage' | 'turret' | 'cell_3d'): void {
     if (this.options.moduleId === 'mod_science_001') {
       switch (preset) {
         case 'titration':
@@ -3232,6 +3548,42 @@ export class SimulationRenderer {
           this.targetSpherical.theta = 0.22
           this.targetSpherical.phi = 1.18
           this.targetSpherical.radius = 1.65
+          return
+      }
+    }
+
+    if (this.options.moduleId === 'mod_science_002') {
+      switch (preset) {
+        case 'eyepiece':
+          this.targetLookAt.set(0, 0.46, 0.07)
+          this.targetSpherical.theta = 0.0
+          this.targetSpherical.phi = 1.35
+          this.targetSpherical.radius = 0.38
+          return
+        case 'stage':
+          this.targetLookAt.set(0, 0.21, 0.07)
+          this.targetSpherical.theta = 0.22
+          this.targetSpherical.phi = 1.12
+          this.targetSpherical.radius = 0.52
+          return
+        case 'turret':
+          this.targetLookAt.set(0, 0.35, 0.07)
+          this.targetSpherical.theta = 0.30
+          this.targetSpherical.phi = 1.22
+          this.targetSpherical.radius = 0.58
+          return
+        case 'cell_3d':
+          this.targetLookAt.set(0, 0.45, 0)
+          this.targetSpherical.theta = 0.42
+          this.targetSpherical.phi = 1.12
+          this.targetSpherical.radius = 1.65
+          return
+        case 'overview':
+        case 'reset':
+          this.targetLookAt.set(0, 0.28, 0)
+          this.targetSpherical.theta = 0.32
+          this.targetSpherical.phi = 1.18
+          this.targetSpherical.radius = 1.45
           return
       }
     }
@@ -3303,6 +3655,23 @@ export class SimulationRenderer {
     }
   }
 
+  // WebXR VR Immersive Session trigger (Meta Quest, Apple Vision Pro, PCVR)
+  public async startVRSession(): Promise<boolean> {
+    if (!navigator.xr) return false
+    const isSupported = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
+    if (!isSupported) return false
+    try {
+      const session = await navigator.xr.requestSession('immersive-vr', {
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+      })
+      await this.renderer.xr.setSession(session)
+      return true
+    } catch (e) {
+      console.warn('Failed to start VR session:', e)
+      return false
+    }
+  }
+
   private animate = (): void => {
     this.animationId = requestAnimationFrame(this.animate)
     const time = performance.now() / 1000
@@ -3342,6 +3711,11 @@ export class SimulationRenderer {
     // Update titration simulation
     if (this.options.moduleId === 'mod_science_001') {
       this.updateTitrationSimulation(delta, time)
+    }
+
+    // Update microscope simulation
+    if (this.options.moduleId === 'mod_science_002') {
+      this.updateMicroscopeSimulation(delta, time)
     }
 
     // Update persistent 3D spatial screen bubble coordinates
@@ -3780,6 +4154,263 @@ export class SimulationRenderer {
       this.targetSpherical.phi = 1.1
       this.targetSpherical.theta = 0.45
     }
+  }
+
+  // ============================================================
+  // MICROSCOPE SIMULATION METHODS
+  // ============================================================
+
+  private buildPhotorealisticMicroscopeScene(): void {
+    this.microscopeRig = buildCompoundMicroscopeRig()
+    this.scene.add(this.microscopeRig.rootGroup)
+
+    // Register all real physical components in objects map for raycasting & hover inspection
+    this.microscopeRig.interactiveParts.forEach((obj, key) => {
+      this.objects.set(key, obj)
+    })
+
+    // Load initial 3D authentic cell model
+    this.loadCellModel(this.microscopeState.activeCellType || 'animal')
+  }
+
+  private updateMicroscopeSimulation(delta: number, _time: number): void {
+    if (!this.microscopeRig) return
+    const s = this.microscopeState
+
+    // 1. Stage carrier Y vertical travel along dovetail rail based on Coarse & Fine focus
+    const coarseOffset = (s.coarseFocus - 52) * 0.0006
+    const fineOffset = (s.fineFocus - 50) * 0.0001
+    const targetStageY = 0.205 + coarseOffset + fineOffset
+    this.microscopeRig.stageCarrierGroup.position.y +=
+      (targetStageY - this.microscopeRig.stageCarrierGroup.position.y) * 0.2
+
+    // 2. Stage X and Z translation from stageX & stageY vernier dials
+    const targetStageX = (s.stageX / 15) * 0.015
+    const targetStageZ = 0.07 + (s.stageY / 15) * 0.015
+    this.microscopeRig.stageGroup.position.x += (targetStageX - this.microscopeRig.stageGroup.position.x) * 0.2
+    this.microscopeRig.stageGroup.position.z += (targetStageZ - this.microscopeRig.stageGroup.position.z) * 0.2
+
+    // 3. Turret rotation based on active objective
+    let targetAngle = 0
+    if (s.objective === 4) targetAngle = 0
+    else if (s.objective === 10) targetAngle = Math.PI / 2
+    else if (s.objective === 40) targetAngle = Math.PI
+    else if (s.objective === 100) targetAngle = (3 * Math.PI) / 2
+
+    this.microscopeRig.turretGroup.rotation.y += (targetAngle - this.microscopeRig.turretGroup.rotation.y) * 0.15
+
+    // 4. Slide & Oil Droplet Visibility
+    if (this.microscopeRig.slideMesh) {
+      this.microscopeRig.slideMesh.visible = s.slideMounted
+    }
+    if (this.microscopeRig.oilDropletMesh) {
+      this.microscopeRig.oilDropletMesh.visible = s.slideMounted && s.hasImmersionOil && s.objective === 100
+    }
+
+    // 5. Light Illuminator Intensity
+    this.microscopeRig.illuminatorLight.intensity = (s.lightIntensity / 100) * 2.5
+
+    // 6. Iris Diaphragm Lever Position
+    if (this.microscopeRig.irisLeverMesh) {
+      this.microscopeRig.irisLeverMesh.rotation.y = (s.irisAperture / 100) * 0.8
+    }
+
+    // 7. Subcellular / Authentic Cell Model Slow Rotation
+    if (this.loadedCellRoot && this.loadedCellRoot.visible) {
+      this.loadedCellRoot.rotation.y += delta * 0.12
+    }
+    if (this.subcellularRig && this.subcellularRig.rootGroup.visible) {
+      this.subcellularRig.rootGroup.rotation.y += delta * 0.12
+    }
+  }
+
+  public getMicroscopeState(): MicroscopeState {
+    return { ...this.microscopeState }
+  }
+
+  public setMicroscopeState(partial: Partial<MicroscopeState>): void {
+    Object.assign(this.microscopeState, partial)
+    this.options.onMicroscopeUpdate?.(this.getMicroscopeState())
+  }
+
+  public cycleObjective(): ObjectiveMagnification {
+    const list: ObjectiveMagnification[] = [4, 10, 40, 100]
+    const idx = list.indexOf(this.microscopeState.objective)
+    const next = list[(idx + 1) % list.length]
+    this.setMicroscopeState({ objective: next })
+    simulationAudio.playTurretClick()
+    return next
+  }
+
+  public mountSlide(specimenId?: SpecimenId): void {
+    const nextSpecimen = specimenId ?? this.microscopeState.activeSpecimen
+    this.setMicroscopeState({ slideMounted: true, activeSpecimen: nextSpecimen })
+    simulationAudio.playSlideInsert()
+    this.pulseObject('microscope_slide')
+  }
+
+  public applyImmersionOil(): void {
+    this.setMicroscopeState({ hasImmersionOil: true })
+    simulationAudio.playDrip()
+    this.pulseObject('microscope_oil_bottle')
+  }
+
+  public adjustCoarseFocus(delta: number): void {
+    const next = Math.max(0, Math.min(100, this.microscopeState.coarseFocus + delta))
+    this.setMicroscopeState({ coarseFocus: next })
+    simulationAudio.playFocusTurn()
+  }
+
+  public adjustFineFocus(delta: number): void {
+    const next = Math.max(0, Math.min(100, this.microscopeState.fineFocus + delta))
+    this.setMicroscopeState({ fineFocus: next })
+    simulationAudio.playFocusTurn()
+  }
+
+  public translateStage(dx: number, dy: number): void {
+    const nextX = Math.max(-15, Math.min(15, this.microscopeState.stageX + dx))
+    const nextY = Math.max(-15, Math.min(15, this.microscopeState.stageY + dy))
+    this.setMicroscopeState({ stageX: nextX, stageY: nextY })
+  }
+
+  public loadCellModel(cellType: CellTypeId): void {
+    this.setMicroscopeState({ activeCellType: cellType, activeOrganelle: null })
+
+    // Hide and dispose previous cell rigs
+    if (this.subcellularRig) {
+      this.subcellularRig.rootGroup.visible = false
+    }
+    if (this.loadedCellRoot) {
+      this.scene.remove(this.loadedCellRoot)
+      this.loadedCellRoot = null
+    }
+
+    const cellDef = CELL_MODELS_CATALOG[cellType]
+    if (!cellDef) return
+
+    const cellGroup = new THREE.Group()
+    cellGroup.position.set(...cellDef.position)
+    cellGroup.rotation.set(...cellDef.rotation)
+    cellGroup.visible = this.microscopeState.viewMode === 'organelle_3d'
+
+    if (cellDef.isProcedural || cellType === 'erythrocyte') {
+      const erythRig = buildErythrocyteRig(this.microscopeState.isSickleCellMode)
+      cellGroup.add(erythRig.rootGroup)
+      this.attachOrganellePins(cellGroup, cellDef)
+      this.loadedCellRoot = cellGroup
+      this.scene.add(cellGroup)
+      return
+    }
+
+    if (cellDef.modelUrl) {
+      this.gltfLoader.load(
+        cellDef.modelUrl,
+        (gltf) => {
+          const model = gltf.scene
+          model.scale.set(...cellDef.scale)
+
+          // Center bounding box
+          const bbox = new THREE.Box3().setFromObject(model)
+          const center = new THREE.Vector3()
+          bbox.getCenter(center)
+          model.position.sub(center)
+
+          model.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const m = child as THREE.Mesh
+              m.castShadow = true
+              m.receiveShadow = true
+              if (m.material) {
+                const mat = m.material as THREE.MeshStandardMaterial
+                if (mat.isMeshStandardMaterial) {
+                  mat.roughness = Math.max(0.25, mat.roughness)
+                  mat.envMapIntensity = 1.2
+                }
+              }
+            }
+          })
+
+          cellGroup.add(model)
+          this.attachOrganellePins(cellGroup, cellDef)
+          this.loadedCellRoot = cellGroup
+          this.scene.add(cellGroup)
+        },
+        undefined,
+        (err) => {
+          console.warn(`Fallback to procedural organelle rig for ${cellType}:`, err)
+          this.subcellularRig = buildVolumetricSubcellularRig(cellType, this.microscopeState.isSickleCellMode)
+          this.scene.add(this.subcellularRig.rootGroup)
+          this.subcellularRig.rootGroup.visible = this.microscopeState.viewMode === 'organelle_3d'
+        }
+      )
+    }
+  }
+
+  private attachOrganellePins(parentGroup: THREE.Group, cellDef: CellModelDefinition): void {
+    cellDef.organelles.forEach((org) => {
+      const pinGroup = new THREE.Group()
+      pinGroup.position.set(...org.position)
+
+      const beaconGeom = new THREE.SphereGeometry(0.022, 16, 16)
+      const beaconMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(org.colorHex),
+        emissive: new THREE.Color(org.colorHex),
+        emissiveIntensity: 0.65,
+        roughness: 0.2,
+      })
+      const beaconMesh = new THREE.Mesh(beaconGeom, beaconMat)
+      pinGroup.add(beaconMesh)
+
+      const ringGeom = new THREE.RingGeometry(0.028, 0.038, 24)
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(org.colorHex),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.75,
+      })
+      const ringMesh = new THREE.Mesh(ringGeom, ringMat)
+      ringMesh.rotation.x = Math.PI / 2
+      pinGroup.add(ringMesh)
+
+      pinGroup.userData = {
+        id: `organelle_${org.id}`,
+        organelleKey: org.id,
+        label: org.name,
+        description: org.function,
+        interactive: true,
+      }
+      parentGroup.add(pinGroup)
+      this.objects.set(`organelle_${org.id}`, pinGroup)
+    })
+  }
+
+  public setMicroscopeViewMode(mode: 'bench' | 'ocular' | 'organelle_3d'): void {
+    this.setMicroscopeState({ viewMode: mode })
+    if (this.microscopeRig) {
+      this.microscopeRig.rootGroup.visible = mode !== 'organelle_3d'
+    }
+    if (this.loadedCellRoot) {
+      this.loadedCellRoot.visible = mode === 'organelle_3d'
+    }
+    if (this.subcellularRig) {
+      this.subcellularRig.rootGroup.visible = mode === 'organelle_3d' && !this.loadedCellRoot
+    }
+    if (mode === 'organelle_3d') {
+      if (!this.loadedCellRoot && !this.subcellularRig) {
+        this.loadCellModel(this.microscopeState.activeCellType || 'animal')
+      }
+      this.setViewPreset('cell_3d')
+    } else if (mode === 'ocular') {
+      this.setViewPreset('eyepiece')
+    } else {
+      this.setViewPreset('overview')
+    }
+  }
+
+  public inspectOrganelle(organelleKey: string): void {
+    this.setMicroscopeState({ activeOrganelle: organelleKey })
+    simulationAudio.playClick()
+    this.pulseObject(`organelle_${organelleKey}`)
   }
 
   public dispose(): void {

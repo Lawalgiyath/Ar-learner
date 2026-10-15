@@ -10,8 +10,17 @@ import {
   simulationAudio,
   type TitrationState,
   type ApparatusScreenInfo,
+  SPECIMEN_CATALOG,
+  ORGANELLE_CATALOG,
+  CELL_MODELS_CATALOG,
+  type MicroscopeState,
+  type SpecimenId,
+  type ObjectiveMagnification,
+  type CellTypeId,
 } from '../engine/SimulationEngine'
 import { formatSeconds } from '../data/curriculum'
+import { MicroscopeViewport } from './MicroscopeViewport'
+import { MicroscopeWorksheetModal } from './MicroscopeWorksheetModal'
 import {
   Search,
   Eye,
@@ -27,6 +36,8 @@ import {
   Hand,
   FlaskConical,
   RotateCcw,
+  Dna,
+  Layers,
 } from 'lucide-react'
 
 interface SimulationViewerProps {
@@ -42,7 +53,7 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
     activeSession,
     advanceStep,
     completeStep,
-    useHint,
+    useHint: consumeHint,
     endSession,
     addNotification,
   } = useStore()
@@ -59,10 +70,20 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
   const [isAutoRotating, setIsAutoRotating] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [vrSupported, setVrSupported] = useState(false)
 
   // University Titration Practical Suite State
   const [titrationState, setTitrationState] = useState<TitrationState | null>(null)
   const [showMeniscusModal, setShowMeniscusModal] = useState(false)
+
+  // University Microscopic Cell Analysis Suite State
+  const [microscopeState, setMicroscopeState] = useState<MicroscopeState | null>(null)
+  const [showMicroscopeWorksheet, setShowMicroscopeWorksheet] = useState(false)
+  const [microscopeSnapshots, setMicroscopeSnapshots] = useState<
+    { id: string; dataUrl: string; caption: string; timestamp: string }[]
+  >([])
+  const [microscopeViewMode, setMicroscopeViewMode] = useState<'bench' | 'ocular' | 'organelle_3d'>('bench')
+  const [selectedOrganelleKey, setSelectedOrganelleKey] = useState<string | null>(null)
   const [showCurveModal, setShowCurveModal] = useState(false)
   const [showWorksheetModal, setShowWorksheetModal] = useState(false)
   const [parallaxAngle, setParallaxAngle] = useState<'eye' | 'above' | 'below'>('eye')
@@ -102,6 +123,7 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
     checkWebXRSupport().then((result) => {
       setXrStatus(result.message)
       setArSupported(result.arSupported)
+      setVrSupported(result.vrSupported)
     })
 
     // Renderer
@@ -110,6 +132,9 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
       moduleId: activeSession.moduleId,
       onTitrationUpdate: (state) => {
         setTitrationState({ ...state })
+      },
+      onMicroscopeUpdate: (mState) => {
+        setMicroscopeState({ ...mState })
       },
       onProgress: (pct, item) => {
         setLoadProgress(pct)
@@ -196,9 +221,9 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
 
   const handleHint = useCallback(() => {
     setShowHint(true)
-    useHint()
+    consumeHint()
     simulationAudio.playClick()
-  }, [useHint])
+  }, [consumeHint])
 
   const handleEndSession = useCallback(() => {
     endSession()
@@ -239,6 +264,80 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
     (id: string, label: string) => {
       setObjectClicked({ id, label })
       setTimeout(() => setObjectClicked(null), 3500)
+
+      if (activeSession?.moduleId === 'mod_science_002') {
+        const stepIdx = activeSession.currentStepIndex
+        if (id === 'specimen_slide' || id === 'slide_box') {
+          rendererRef.current?.mountSlide()
+          addNotification({
+            kind: 'success',
+            title: 'Specimen Slide Mounted',
+            message: 'Prepared histological slide clamped under mechanical stage fingers. Transmitted light aligned.',
+            duration: 4000,
+          })
+          if (stepIdx === 0) {
+            completeStep(0, 95)
+            advanceStep()
+          }
+        } else if (id === 'objective_lens_turret') {
+          const nextPower = rendererRef.current?.cycleObjective()
+          addNotification({
+            kind: 'info',
+            title: `Objective Revolver Engaged: ${nextPower}x`,
+            message: `Switched to ${nextPower}x objective lens. Parfocal detent locked into place.`,
+            duration: 3500,
+          })
+          if (stepIdx === 1) {
+            completeStep(1, 95)
+            advanceStep()
+          }
+        } else if (id === 'coarse_focus_knob') {
+          rendererRef.current?.adjustCoarseFocus(8)
+          addNotification({
+            kind: 'info',
+            title: 'Coarse Focus Adjusted',
+            message: 'Mechanical stage vertical displacement calibrated into focal plane sweet spot.',
+            duration: 3500,
+          })
+          if (stepIdx === 2) {
+            completeStep(2, 95)
+            advanceStep()
+          }
+        } else if (id === 'fine_focus_knob' || id === 'oil_bottle') {
+          if (id === 'oil_bottle') {
+            rendererRef.current?.applyImmersionOil()
+            addNotification({
+              kind: 'success',
+              title: 'Immersion Oil Applied (n=1.518)',
+              message: 'Coverslip air gap eliminated. Maximum 1.25 N.A. light cone engaged.',
+              duration: 4000,
+            })
+          } else {
+            rendererRef.current?.adjustFineFocus(5)
+            addNotification({
+              kind: 'info',
+              title: 'Fine Focus Micrometer Refined',
+              message: '2µm graduated optical sectioning adjusted.',
+              duration: 3000,
+            })
+          }
+          if (stepIdx === 3) {
+            completeStep(3, 96)
+            advanceStep()
+          }
+        } else if (id.startsWith('organelle_') || id === 'microscope') {
+          if (id.startsWith('organelle_')) {
+            const key = id.replace('organelle_', '')
+            setSelectedOrganelleKey(key)
+            rendererRef.current?.inspectOrganelle(key)
+          }
+          if (stepIdx === 4) {
+            completeStep(4, 98)
+            advanceStep()
+          }
+        }
+        return
+      }
 
       if (activeSession?.moduleId !== 'mod_science_001') return
 
@@ -380,6 +479,26 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
         kind: 'warning',
         title: 'WebXR AR Notice',
         message: 'No compatible WebXR AR display or session detected.',
+      })
+    }
+  }, [addNotification])
+
+  const handleStartVR = useCallback(async () => {
+    if (!rendererRef.current) return
+    const started = await rendererRef.current.startVRSession()
+    if (!started) {
+      addNotification({
+        kind: 'info',
+        title: 'WebXR VR Display Mode',
+        message: 'No hardware VR headset detected. Interactive desktop 3D with stereoscopic ocular alignment is fully active.',
+        duration: 4500,
+      })
+    } else {
+      addNotification({
+        kind: 'success',
+        title: 'WebXR VR Immersive Session Active',
+        message: 'Step into the room-scale biology laboratory bench. Grab microscope knobs or lean in for ocular viewing.',
+        duration: 5000,
       })
     }
   }, [addNotification])
@@ -757,6 +876,60 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
                 Full Bench
               </button>
             </>
+          ) : activeSession.moduleId === 'mod_science_002' ? (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setMicroscopeViewMode('bench')
+                  rendererRef.current?.setMicroscopeViewMode('bench')
+                }}
+                title="3D Laboratory Workbench"
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  borderRadius: 'var(--radius-full)',
+                  color: microscopeViewMode === 'bench' ? '#38bdf8' : 'var(--text-secondary)',
+                  background: microscopeViewMode === 'bench' ? 'rgba(56, 189, 248, 0.18)' : 'transparent',
+                }}
+              >
+                3D Bench
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setMicroscopeViewMode('ocular')
+                  rendererRef.current?.setMicroscopeViewMode('ocular')
+                }}
+                title="Look Through Eyepieces into Specimen"
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  borderRadius: 'var(--radius-full)',
+                  color: microscopeViewMode === 'ocular' ? '#22c55e' : 'var(--text-secondary)',
+                  background: microscopeViewMode === 'ocular' ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
+                }}
+              >
+                Ocular View
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setMicroscopeViewMode('organelle_3d')
+                  rendererRef.current?.setMicroscopeViewMode('organelle_3d')
+                }}
+                title="Fly-Into-Cell 3D Volumetric Organelles"
+                style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  borderRadius: 'var(--radius-full)',
+                  color: microscopeViewMode === 'organelle_3d' ? '#a78bfa' : 'var(--text-secondary)',
+                  background: microscopeViewMode === 'organelle_3d' ? 'rgba(167, 139, 250, 0.18)' : 'transparent',
+                }}
+              >
+                3D Cell Fly-Through
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -800,9 +973,39 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
             {soundEnabled ? 'Audio' : 'Muted'}
           </button>
 
-          {arSupported ? (
+          {vrSupported ? (
             <button
               className="btn btn-primary btn-sm"
+              onClick={handleStartVR}
+              title="Enter WebXR Virtual Reality"
+              style={{
+                fontSize: '11px',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-full)',
+                background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+              }}
+            >
+              VR Mode
+            </button>
+          ) : (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleStartVR}
+              title="WebXR VR Compatible (Quest / Vision Pro / PCVR)"
+              style={{
+                fontSize: '11px',
+                padding: '4px 8px',
+                borderRadius: 'var(--radius-full)',
+                color: '#a78bfa',
+              }}
+            >
+              VR Ready
+            </button>
+          )}
+
+          {arSupported && (
+            <button
+              className="btn btn-secondary btn-sm"
               onClick={handleStartAR}
               title={xrStatus}
               style={{
@@ -813,17 +1016,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
             >
               AR Mode
             </button>
-          ) : (
-            <span
-              title={xrStatus}
-              style={{
-                fontSize: '10px',
-                padding: '3px 8px',
-                color: 'var(--text-muted)',
-              }}
-            >
-              3D
-            </span>
           )}
 
           <button
@@ -1022,6 +1214,79 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
                     style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                   >
                     <FileSpreadsheet size={12} /> Open Lab Worksheet
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Direct Step Action for Microscope Cell Analysis */}
+            {activeSession.moduleId === 'mod_science_002' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+                {activeSession.currentStepIndex === 0 && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleApparatusClick('specimen_slide', 'Prepared Specimen Slide')}
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <Layers size={12} /> Mount Slide to Mechanical Stage
+                  </button>
+                )}
+                {activeSession.currentStepIndex === 1 && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleApparatusClick('objective_lens_turret', 'Objective Turret')}
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <RotateCw size={12} /> Rotate Turret to 10x Low Power
+                  </button>
+                )}
+                {activeSession.currentStepIndex === 2 && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleApparatusClick('coarse_focus_knob', 'Coarse Focus Knob')}
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <SlidersHorizontal size={12} /> Adjust Coarse Focus Knob (+8%)
+                  </button>
+                )}
+                {activeSession.currentStepIndex === 3 && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleApparatusClick('fine_focus_knob', 'Fine Focus Knob')}
+                      style={{ flex: 1, fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                    >
+                      <SlidersHorizontal size={12} /> Refine Fine Focus
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleApparatusClick('oil_bottle', 'Immersion Oil Bottle')}
+                      style={{ flex: 1, fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                    >
+                      <Droplets size={12} /> Apply Oil (100x)
+                    </button>
+                  </div>
+                )}
+                {activeSession.currentStepIndex === 4 && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setMicroscopeViewMode('organelle_3d')
+                      rendererRef.current?.setMicroscopeViewMode('organelle_3d')
+                      handleApparatusClick('microscope', '3D Subcellular Explorer')
+                    }}
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <Dna size={12} /> Enter 3D Organelle Explorer
+                  </button>
+                )}
+                {activeSession.currentStepIndex === 5 && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => setShowMicroscopeWorksheet(true)}
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <FileSpreadsheet size={12} /> Open Lab Practicum Report
                   </button>
                 )}
               </div>
@@ -2524,6 +2789,351 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+        {/* University Microscopic Cell Analysis Practicum Worksheet Modal */}
+        {showMicroscopeWorksheet && microscopeState && (
+          <MicroscopeWorksheetModal
+            state={microscopeState}
+            snapshots={microscopeSnapshots}
+            onClose={() => setShowMicroscopeWorksheet(false)}
+            onGradeAwarded={(grade, score) => {
+              addNotification({
+                kind: 'success',
+                title: 'Histology Grade Awarded',
+                message: `${grade} - Score ${score}%`,
+                duration: 5000,
+              })
+              completeStep(5, score)
+              advanceStep()
+            }}
+          />
+        )}
+
+        {/* Full Ocular Viewport Overlay (when in ocular mode) */}
+        {activeSession.moduleId === 'mod_science_002' && microscopeViewMode === 'ocular' && microscopeState && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 25,
+              background: 'rgba(3, 5, 10, 0.95)',
+              backdropFilter: 'blur(16px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 'var(--space-4)',
+              animation: 'fadeIn 0.25s ease',
+            }}
+          >
+            <div style={{ maxWidth: 640, width: '100%', position: 'relative' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setMicroscopeViewMode('bench')
+                  rendererRef.current?.setMicroscopeViewMode('bench')
+                }}
+                style={{
+                  position: 'absolute',
+                  top: -36,
+                  right: 0,
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <X size={14} /> Close Ocular View
+              </button>
+              <MicroscopeViewport
+                state={microscopeState}
+                onUpdateState={(partial) => rendererRef.current?.setMicroscopeState(partial)}
+                onCaptureSnapshot={(dataUrl, caption) => {
+                  simulationAudio.playShutterSnapshot()
+                  setMicroscopeSnapshots((prev) => [
+                    ...prev,
+                    {
+                      id: `snap_${Date.now()}`,
+                      dataUrl,
+                      caption,
+                      timestamp: new Date().toLocaleTimeString(),
+                    },
+                  ])
+                  addNotification({
+                    kind: 'success',
+                    title: 'Micrograph Snapshot Captured',
+                    message: `${caption} saved to practicum lab notebook.`,
+                    duration: 3500,
+                  })
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Dedicated Microscope Quick Toolbar (Bottom Center when on bench or cell view) */}
+        {activeSession.moduleId === 'mod_science_002' && microscopeState && microscopeViewMode !== 'ocular' && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 'var(--space-4)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 14px',
+              background: 'rgba(8, 14, 26, 0.92)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(56, 189, 248, 0.35)',
+              borderRadius: 'var(--radius-full)',
+              boxShadow: '0 12px 28px rgba(0,0,0,0.6)',
+              maxWidth: '92vw',
+              overflowX: 'auto',
+            }}
+          >
+            {/* Specimen Slide Selector */}
+            <select
+              className="input input-sm"
+              value={microscopeState.activeSpecimen}
+              onChange={(e) => rendererRef.current?.mountSlide(e.target.value as SpecimenId)}
+              style={{ fontSize: '11px', padding: '4px 8px', borderRadius: 'var(--radius-md)', background: 'var(--bg-surface-2)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
+            >
+              {Object.values(SPECIMEN_CATALOG).map((spec) => (
+                <option key={spec.id} value={spec.id}>
+                  {spec.name} ({spec.stainType})
+                </option>
+              ))}
+            </select>
+
+            {/* Objective Selector */}
+            <div style={{ display: 'flex', gap: '3px' }}>
+              {([4, 10, 40, 100] as ObjectiveMagnification[]).map((p) => (
+                <button
+                  key={p}
+                  className={`btn btn-xs ${microscopeState.objective === p ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => rendererRef.current?.setMicroscopeState({ objective: p })}
+                  style={{ fontSize: '10px', padding: '2px 7px' }}
+                >
+                  {p}x
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Ocular View button */}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setMicroscopeViewMode('ocular')
+                rendererRef.current?.setMicroscopeViewMode('ocular')
+              }}
+              style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <Eye size={12} color="#22c55e" /> Look into Eyepiece
+            </button>
+
+            {/* Open Lab Report Worksheet */}
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => setShowMicroscopeWorksheet(true)}
+              style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}
+            >
+              <FileSpreadsheet size={12} /> Lab Report
+            </button>
+          </div>
+        )}
+
+        {/* Direct 3D Touch Guidance Banner on Bench Mode */}
+        {activeSession.moduleId === 'mod_science_002' && microscopeViewMode === 'bench' && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'var(--space-4)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 10,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 16px',
+              background: 'rgba(8, 14, 26, 0.88)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(56, 189, 248, 0.3)',
+              borderRadius: 'var(--radius-full)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+              color: 'var(--text-secondary)',
+              fontSize: '11px',
+              pointerEvents: 'none',
+              animation: 'fadeIn 0.3s ease',
+            }}
+          >
+            <Hand size={13} color="#38bdf8" />
+            <span>
+              <strong style={{ color: '#f8fafc' }}>Direct 3D Touch Active:</strong> Drag knobs to focus • Drag stage in X/Y • Click turret to switch objectives • Click slide tray to swap specimens • Click oil bottle to apply oil
+            </span>
+          </div>
+        )}
+
+        {/* Multi-Cell 3D Model Explorer Ribbon (Top Center in organelle_3d mode) */}
+        {activeSession.moduleId === 'mod_science_002' && microscopeViewMode === 'organelle_3d' && microscopeState && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'var(--space-4)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 14px',
+              background: 'rgba(8, 14, 26, 0.94)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: 'var(--radius-full)',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
+              maxWidth: '94vw',
+              overflowX: 'auto',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
+              <Dna size={14} /> 3D Cell Gallery:
+            </span>
+            {(Object.keys(CELL_MODELS_CATALOG) as CellTypeId[]).map((cId) => {
+              const cInfo = CELL_MODELS_CATALOG[cId]
+              const isActive = (microscopeState.activeCellType || 'animal') === cId
+              return (
+                <button
+                  key={cId}
+                  className={`btn btn-xs ${isActive ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => {
+                    rendererRef.current?.loadCellModel(cId)
+                    addNotification({
+                      kind: 'info',
+                      title: cInfo.name,
+                      message: `${cInfo.scientificCategory} loaded. Click glowing organelle pins to inspect.`,
+                      duration: 4000,
+                    })
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    borderRadius: 'var(--radius-full)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {cId === 'animal' && '🧫 '}
+                  {cId === 'plant' && '🌿 '}
+                  {cId === 'neuron' && '🧠 '}
+                  {cId === 'macrophage' && '🛡️ '}
+                  {cId === 'bacterium' && '🦠 '}
+                  {cId === 'erythrocyte' && '🩸 '}
+                  {cInfo.name}
+                </button>
+              )
+            })}
+
+            {/* Erythrocyte Sickle Crisis Toggle */}
+            {microscopeState.activeCellType === 'erythrocyte' && (
+              <button
+                className={`btn btn-xs ${microscopeState.isSickleCellMode ? 'btn-warning' : 'btn-outline'}`}
+                onClick={() => {
+                  const nextMode = !microscopeState.isSickleCellMode
+                  rendererRef.current?.setMicroscopeState({ isSickleCellMode: nextMode })
+                  rendererRef.current?.loadCellModel('erythrocyte')
+                  addNotification({
+                    kind: nextMode ? 'warning' : 'info',
+                    title: nextMode ? 'Drepanocyte Sickle Crisis' : 'Biconcave Erythrocyte',
+                    message: nextMode ? 'HbS polymer fiber crystallization induced rigid crescent morphology.' : 'Normal elastic biconcave disc geometry restored.',
+                    duration: 4000,
+                  })
+                }}
+                style={{ fontSize: '10px', padding: '3px 8px', borderRadius: 'var(--radius-full)', marginLeft: '6px' }}
+              >
+                {microscopeState.isSickleCellMode ? '⚡ Drepanocyte Crisis (HbS)' : 'Normal Biconcave Disc'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Organelle Inspector Floating Card (when in organelle_3d mode and organelle selected) */}
+        {activeSession.moduleId === 'mod_science_002' && microscopeViewMode === 'organelle_3d' && selectedOrganelleKey && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'var(--space-16)',
+              left: 'var(--space-4)',
+              maxWidth: 340,
+              width: 'calc(100vw - 2rem)',
+              animation: 'fadeIn 0.2s ease',
+              zIndex: 15,
+            }}
+          >
+            {(() => {
+              // Try finding organelle in active cell's catalog first, fallback to ORGANELLE_CATALOG
+              const activeCell = CELL_MODELS_CATALOG[microscopeState?.activeCellType || 'animal']
+              const cellOrg = activeCell?.organelles.find((o) => o.id === selectedOrganelleKey)
+              const fallbackOrg = ORGANELLE_CATALOG[selectedOrganelleKey]
+
+              if (!cellOrg && !fallbackOrg) return null
+
+              const title = cellOrg ? cellOrg.name : fallbackOrg!.name
+              const category = activeCell ? activeCell.name : fallbackOrg!.category
+              const colorHex = cellOrg ? cellOrg.colorHex : fallbackOrg!.colorHex
+              const marker = cellOrg ? cellOrg.biochemicalMarker : 'Enzymatic Marker'
+              const primaryFn = cellOrg ? cellOrg.function : fallbackOrg!.primaryFunction
+              const ultrastructure = cellOrg ? cellOrg.ultrastructure : fallbackOrg!.ultrastructureDetails
+              const pathology = cellOrg ? cellOrg.clinicalPathology : fallbackOrg!.clinicalPathology
+
+              return (
+                <div
+                  className="sim-hud-panel"
+                  style={{
+                    padding: 'var(--space-4)',
+                    background: 'rgba(8, 14, 28, 0.95)',
+                    border: `1px solid ${colorHex}`,
+                    boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '10px', color: colorHex, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {category} • Organelle Ultrastructure
+                    </span>
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => setSelectedOrganelleKey(null)}
+                      style={{ padding: '2px' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+
+                  <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                    {title}
+                  </h3>
+
+                  <div style={{ fontSize: '10px', padding: '3px 6px', borderRadius: 'var(--radius-sm)', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.25)', color: '#7dd3fc' }}>
+                    <strong>Biochemical Marker:</strong> {marker}
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    <strong>Function:</strong> {primaryFn}
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    <strong>Ultrastructure:</strong> {ultrastructure}
+                  </div>
+
+                  <div style={{ fontSize: '10px', padding: '4px 8px', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5' }}>
+                    <strong>Clinical Pathology:</strong> {pathology}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
