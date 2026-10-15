@@ -1,4 +1,4 @@
-// SimulationViewer - Core 3D viewport component
+﻿// SimulationViewer - Core 3D viewport component
 // Renders the Three.js scene, real GLB models, step-by-step HUD, spatial controls & audio
 
 import { useRef, useEffect, useState, useCallback } from 'react'
@@ -30,7 +30,6 @@ import {
   FileSpreadsheet,
   TrendingUp,
   Sparkles,
-  Info,
   X,
   SlidersHorizontal,
   Hand,
@@ -87,7 +86,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
   const [showCurveModal, setShowCurveModal] = useState(false)
   const [showWorksheetModal, setShowWorksheetModal] = useState(false)
   const [parallaxAngle, setParallaxAngle] = useState<'eye' | 'above' | 'below'>('eye')
-  const [hoveredApparatus, setHoveredApparatus] = useState<{ id: string; label: string; desc: string | null } | null>(null)
   const [_pipettedAliquot, setPipettedAliquot] = useState(false)
   const [addedIndicator, setAddedIndicator] = useState(false)
   const handleApparatusClickRef = useRef<((id: string, label: string) => void) | null>(null)
@@ -139,13 +137,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
       onProgress: (pct, item) => {
         setLoadProgress(pct)
         setLoadingItem(`Loading ${item}...`)
-      },
-      onHoverChange: (id, label, desc) => {
-        if (id) {
-          setHoveredApparatus({ id, label: label || id, desc })
-        } else {
-          setHoveredApparatus(null)
-        }
       },
       onApparatusScreenInfo: (info) => {
         if (info) {
@@ -1559,55 +1550,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
             </div>
           </div>
         )}
-
-        {/* Floating Interactive Apparatus Cue (Bottom Center, above Dock) */}
-        {activeSession.moduleId === 'mod_science_001' && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: titrationState?.activeTool !== 'none' ? '128px' : '78px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 14,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '5px 14px',
-              borderRadius: 'var(--radius-full)',
-              background: hoveredApparatus
-                ? 'rgba(14, 165, 233, 0.22)'
-                : 'rgba(15, 23, 42, 0.88)',
-              border: `1px solid ${
-                hoveredApparatus ? '#38bdf8' : 'rgba(255, 255, 255, 0.12)'
-              }`,
-              backdropFilter: 'blur(12px)',
-              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
-              transition: 'all 0.25s ease',
-              pointerEvents: 'none',
-              maxWidth: 'calc(100vw - 3rem)',
-            }}
-          >
-            {hoveredApparatus ? (
-              <>
-                <Sparkles size={12} color="#38bdf8" />
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#ffffff' }}>
-                  {hoveredApparatus.label}:
-                </span>
-                <span style={{ fontSize: '11px', color: '#7dd3fc' }}>
-                  {hoveredApparatus.desc || 'Click directly to interact'}
-                </span>
-              </>
-            ) : (
-              <>
-                <Info size={12} color="#38bdf8" />
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                  <strong style={{ color: '#e2e8f0' }}>Direct 3D Interaction:</strong> Drag stopcock to spin valve • Click equipment to pick up • Hover for scientific function
-                </span>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Active Portable Tool Staging Controls (Floats right above main dock when tool is held) */}
         {activeSession.moduleId === 'mod_science_001' && titrationState && titrationState.activeTool !== 'none' && (
           <div
