@@ -1,4 +1,4 @@
-// ARLearner Simulation Engine
+﻿// ARLearner Simulation Engine
 // Built on Three.js with WebXR-readiness, KTX2/Meshopt/Draco decoders,
 // photorealistic PBR materials, procedural audio synthesis, and interactive spatial HUD.
 
@@ -3263,7 +3263,6 @@ export class SimulationRenderer {
         this.options.onObjectClick?.(id, label)
         this.pulseObject(id)
         this.playContextAudio(id)
-        this.emitSpatialScreenInfo(id)
       }
     }
   }
@@ -3386,47 +3385,6 @@ export class SimulationRenderer {
     }
   }
 
-  private emitSpatialScreenInfo(id: string | null): void {
-    if (!id) {
-      this.options.onApparatusScreenInfo?.(null)
-      return
-    }
-
-    const obj = this.objects.get(id)
-    if (!obj) {
-      this.options.onApparatusScreenInfo?.(null)
-      return
-    }
-
-    const meta = this.getApparatusMetadata(id)
-    const box = new THREE.Box3().setFromObject(obj)
-    const center = new THREE.Vector3()
-    box.getCenter(center)
-    // Anchor slightly above top of bounding box
-    const anchor = new THREE.Vector3(center.x, box.max.y + 0.045, center.z)
-    anchor.project(this.camera)
-
-    // Verify anchor is in front of camera lens
-    if (anchor.z > 1 || anchor.z < -1) {
-      this.options.onApparatusScreenInfo?.(null)
-      return
-    }
-
-    const canvas = this.options.canvas
-    const screenX = (anchor.x * 0.5 + 0.5) * canvas.clientWidth
-    const screenY = (-anchor.y * 0.5 + 0.5) * canvas.clientHeight
-
-    this.options.onApparatusScreenInfo?.({
-      id,
-      label: meta.label,
-      description: meta.description,
-      category: meta.category,
-      actionHint: meta.actionHint,
-      screenX,
-      screenY,
-      visible: true,
-    })
-  }
 
   private updateHover(): void {
     this.raycaster.setFromCamera(this.mouse, this.camera)
@@ -3463,12 +3421,10 @@ export class SimulationRenderer {
           if (rootObj) this.applyEmissive(rootObj, true, false)
         }
         this.options.onHoverChange?.(id, label, desc)
-        this.emitSpatialScreenInfo(id)
       }
     } else {
       if (this.hoveredObject) {
         this.options.onHoverChange?.(null, null, null)
-        this.emitSpatialScreenInfo(null)
       }
       this.hoveredObject = null
       this.options.canvas.style.cursor = 'grab'
@@ -3720,7 +3676,6 @@ export class SimulationRenderer {
 
     // Update persistent 3D spatial screen bubble coordinates
     if (this.hoveredObject) {
-      this.emitSpatialScreenInfo(this.hoveredObject)
     }
 
     // Guard against WebGL context crash or shader failure
@@ -4012,7 +3967,6 @@ export class SimulationRenderer {
         break
     }
     simulationAudio.playClick()
-    this.emitSpatialScreenInfo(tool === 'litmus_strip' ? 'litmus_paper' : tool)
   }
 
   public putDownTool(): void {

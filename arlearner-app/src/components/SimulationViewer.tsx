@@ -9,7 +9,6 @@ import {
   getStepProgress,
   simulationAudio,
   type TitrationState,
-  type ApparatusScreenInfo,
   SPECIMEN_CATALOG,
   ORGANELLE_CATALOG,
   CELL_MODELS_CATALOG,
@@ -90,8 +89,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
   const [addedIndicator, setAddedIndicator] = useState(false)
   const handleApparatusClickRef = useRef<((id: string, label: string) => void) | null>(null)
 
-  // 3D Spatial Floating Speech Bubble (Inspection HUD)
-  const [activeBubble, setActiveBubble] = useState<ApparatusScreenInfo | null>(null)
   const [showToolDrawer, setShowToolDrawer] = useState(false)
 
   // University Stoichiometric Worksheet state
@@ -137,11 +134,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
       onProgress: (pct, item) => {
         setLoadProgress(pct)
         setLoadingItem(`Loading ${item}...`)
-      },
-      onApparatusScreenInfo: (info) => {
-        if (info) {
-          setActiveBubble(info)
-        }
       },
       onObjectClick: (id, label) => {
         handleApparatusClickRef.current?.(id, label)
@@ -1982,125 +1974,6 @@ export default function SimulationViewer({ onClose }: SimulationViewerProps) {
           </div>
         )}
 
-        {/* 3D Spatial Floating Speech Bubble (Inspection HUD with 4.5s Linger Countdown) */}
-        {activeBubble && activeBubble.visible && (
-          <div
-            style={{
-              position: 'absolute',
-              left: Math.max(16, Math.min(window.innerWidth - 340, activeBubble.screenX - 160)),
-              top: Math.max(70, Math.min(window.innerHeight - 220, activeBubble.screenY - 175)),
-              zIndex: 25,
-              width: 320,
-              pointerEvents: 'auto',
-              animation: 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            <div
-              style={{
-                position: 'relative',
-                background: 'rgba(8, 14, 26, 0.96)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(56, 189, 248, 0.45)',
-                borderRadius: '14px',
-                padding: '14px 16px',
-                boxShadow: '0 16px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(56, 189, 248, 0.15)',
-              }}
-            >
-              {/* Pointer Arrow Tail pointing to 3D apparatus */}
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: -7,
-                  left: '50%',
-                  transform: 'translateX(-50%) rotate(45deg)',
-                  width: 14,
-                  height: 14,
-                  background: 'rgba(8, 14, 26, 0.96)',
-                  borderRight: '1px solid rgba(56, 189, 248, 0.45)',
-                  borderBottom: '1px solid rgba(56, 189, 248, 0.45)',
-                }}
-              />
-
-              {/* Header with Category Badge and Dismiss */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    padding: '2px 8px',
-                    borderRadius: '999px',
-                    background: 'rgba(56, 189, 248, 0.15)',
-                    border: '1px solid rgba(56, 189, 248, 0.3)',
-                    color: '#38bdf8',
-                    fontWeight: 700,
-                  }}
-                >
-                  {activeBubble.category}
-                </span>
-                <button
-                  onClick={() => setActiveBubble(null)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    padding: 2,
-                    display: 'flex',
-                  }}
-                  title="Dismiss callout"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-
-              {/* Apparatus Name */}
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#f8fafc', marginBottom: 6, lineHeight: 1.3 }}>
-                {activeBubble.label}
-              </div>
-
-              {/* Scientific Purpose / Function ("What it does") */}
-              <div style={{ fontSize: '11px', color: '#cbd5e1', lineHeight: 1.55, marginBottom: 10 }}>
-                {activeBubble.description}
-              </div>
-
-              {/* Interaction Cue & Action Button */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingTop: 8,
-                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                }}
-              >
-                <span style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Sparkles size={11} color="#38bdf8" />
-                  {activeBubble.actionHint}
-                </span>
-
-                {['wash_bottle', 'indicator', 'pipette', 'reagent_beaker', 'litmus_paper'].includes(activeBubble.id) && (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => {
-                      const tool = activeBubble.id === 'litmus_paper' ? 'litmus_strip' : activeBubble.id
-                      if (titrationState?.activeTool === tool) {
-                        rendererRef.current?.putDownTool()
-                      } else {
-                        rendererRef.current?.pickUpTool(tool as any)
-                      }
-                    }}
-                    style={{ fontSize: '10px', padding: '3px 8px', borderRadius: '6px' }}
-                  >
-                    {titrationState?.activeTool === (activeBubble.id === 'litmus_paper' ? 'litmus_strip' : activeBubble.id)
-                      ? 'Put Down'
-                      : 'Pick Up'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 3. Parallax-Free Meniscus Magnifier Modal */}
         {showMeniscusModal && titrationState && (
